@@ -1,0 +1,8 @@
+{
+  "name": " PU Circle",
+  "description": "A comprehensive, mobile-friendly resource and circular portal for Karnataka Pre-University (PU) students. Easily access syllabus blueprints, past question papers, and official board updates, or upload and share notes with the student community.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
