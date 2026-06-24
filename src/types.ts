@@ -27,6 +27,8 @@ export interface StudyMaterial {
   likes: number;
   downloads: number;
   isCustom?: boolean; // Indicates if user-uploaded
+  fileBase64?: string; // Base64 raw contents for offline download on Netlify
+  commentsCount?: number; // Offline comments count
 }
 
 export interface UserComment {

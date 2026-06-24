@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PUClass, PUStream, MaterialCategory, PUModule, StudyMaterial, UserComment, CircularNotification } from './types';
-import { PU_SUBJECTS } from './data';
+import { PU_SUBJECTS, INITIAL_MATERIALS, INITIAL_CIRCULARS } from './data';
 
 export default function App() {
   // Mobile / Desktop View state
@@ -100,14 +100,98 @@ export default function App() {
 
       setMaterials(mData);
       setCirculars(cData);
+      setComments(comData);
       
-      // Separate comments
       const genComments = comData.filter((c: UserComment) => c.targetId === 'general');
       setGeneralComments(genComments.sort((a: UserComment, b: UserComment) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-      setComments(comData);
+
+      try {
+        localStorage.setItem('puc_materials', JSON.stringify(mData));
+        localStorage.setItem('puc_circulars', JSON.stringify(cData));
+        localStorage.setItem('puc_comments', JSON.stringify(comData));
+      } catch (e) {
+        console.warn('Could not cache to localStorage', e);
+      }
     } catch (err: any) {
-      console.warn('Backend not fully ready or returned errors, using mock storage fallback.', err);
-      setErrorStatus('Backend offline, running on in-memory clientside state.');
+      console.warn('Backend not fully ready or returned errors, using local storage fallback.', err);
+      setErrorStatus('Running in Offline/Static client-side mode with LocalStorage persistence.');
+
+      let storedMaterials: StudyMaterial[] = [];
+      let storedCirculars: CircularNotification[] = [];
+      let storedComments: UserComment[] = [];
+
+      try {
+        const mRaw = localStorage.getItem('puc_materials');
+        const cRaw = localStorage.getItem('puc_circulars');
+        const comRaw = localStorage.getItem('puc_comments');
+
+        if (mRaw) storedMaterials = JSON.parse(mRaw);
+        if (cRaw) storedCirculars = JSON.parse(cRaw);
+        if (comRaw) storedComments = JSON.parse(comRaw);
+      } catch (e) {
+        console.error('Failed to parse localStorage data', e);
+      }
+
+      if (storedMaterials.length === 0) {
+        storedMaterials = INITIAL_MATERIALS;
+        try {
+          localStorage.setItem('puc_materials', JSON.stringify(storedMaterials));
+        } catch (e) {}
+      }
+
+      if (storedCirculars.length === 0) {
+        storedCirculars = INITIAL_CIRCULARS;
+        try {
+          localStorage.setItem('puc_circulars', JSON.stringify(storedCirculars));
+        } catch (e) {}
+      }
+
+      if (storedComments.length === 0) {
+        storedComments = [
+          {
+            id: 'comm-1',
+            targetId: 'mat-1',
+            author: 'Deepak Gowda',
+            authorEmail: 'deepak.gowda@gmail.com',
+            text: 'Extremely helpful solver. The calculations for organic conversions in chemistry are incredibly detailed. Big thanks to the teacher who uploaded this!',
+            createdAt: '2026-06-22T10:14:22Z',
+          },
+          {
+            id: 'comm-2',
+            targetId: 'mat-2',
+            author: 'Preethi Rao',
+            authorEmail: 'preethi@pes.edu',
+            text: 'Used this cheat sheet on the bus to my class-test today. All integration formulas are condensed on 2 pages! Recommended for everyone.',
+            createdAt: '2026-06-20T18:45:00Z',
+          },
+          {
+            id: 'comm-3',
+            targetId: 'circ-1',
+            author: 'Kiran Kumar',
+            authorEmail: 'kiran2008@outlook.com',
+            text: 'Are these model papers final or will they release another set? The math paper layout seems slightly changed in Part C compared to last year.',
+            createdAt: '2026-06-21T07:12:00Z',
+          },
+          {
+            id: 'comm-4',
+            targetId: 'general',
+            author: 'Prof. Ramesh Bhat',
+            authorEmail: 'ramesh.physics@college.edu',
+            text: "Welcome 1st & 2nd PU Students! Let's build a helpful collaborative repository here. Feel free to drag & drop high-quality question sheets, syllabus blueprints, or chapter summaries. Please label them accurately so your peers can access them easily.",
+            createdAt: '2026-06-02T09:00:00Z',
+          }
+        ];
+        try {
+          localStorage.setItem('puc_comments', JSON.stringify(storedComments));
+        } catch (e) {}
+      }
+
+      setMaterials(storedMaterials);
+      setCirculars(storedCirculars);
+      setComments(storedComments);
+
+      const genComments = storedComments.filter((c: UserComment) => c.targetId === 'general');
+      setGeneralComments(genComments.sort((a: UserComment, b: UserComment) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     } finally {
       setLoading(false);
     }
@@ -282,7 +366,16 @@ export default function App() {
       }
 
       const newMaterial = await res.json();
-      setMaterials(prev => [newMaterial, ...prev]);
+      // Store raw Base64 locally so we can serve client-side downloads for it later
+      const enrichedMaterial = { ...newMaterial, fileBase64: base64Content };
+
+      setMaterials(prev => {
+        const updated = [enrichedMaterial, ...prev];
+        try {
+          localStorage.setItem('puc_materials', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
       
       // Success visual workflow
       setUploadSuccess(true);
@@ -298,14 +391,13 @@ export default function App() {
       }, 1500);
 
     } catch (err) {
-      console.error(err);
-      alert('Failed to upload material metadata to local server. Falling back to in-memory save.');
-      // Fallback save in-memory so preview works regardless of container filesystem states
+      console.warn('Backend upload failed, performing offline-first client-side save:', err);
+      
       const mockId = `mat-${Date.now()}`;
       const mockMaterial: StudyMaterial = {
         id: mockId,
         title: uploadTitle,
-        description: uploadDescription || 'No description provided',
+        description: uploadDescription || 'No description provided.',
         subject: uploadSubject || (availableSubjectsForUpload[0]?.name || 'English'),
         className: uploadClass,
         stream: uploadStream,
@@ -317,12 +409,30 @@ export default function App() {
         fileSize: formatBytes(selectedFile.size),
         fileType: selectedFile.name.split('.').pop() || 'pdf',
         fileName: selectedFile.name,
+        fileBase64: base64Content,
         likes: 0,
         downloads: 0,
         isCustom: true
       };
-      setMaterials(prev => [mockMaterial, ...prev]);
-      setIsUploadOpen(false);
+
+      setMaterials(prev => {
+        const updated = [mockMaterial, ...prev];
+        try {
+          localStorage.setItem('puc_materials', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      setUploadSuccess(true);
+      setTimeout(() => {
+        setUploadSuccess(false);
+        setIsUploadOpen(false);
+        setUploadTitle('');
+        setUploadDescription('');
+        setSelectedFile(null);
+        setBase64Content('');
+        setUploadModule('Whole Syllabus');
+      }, 1200);
     } finally {
       setUploadProgress(false);
     }
@@ -335,16 +445,30 @@ export default function App() {
       const res = await fetch(`/api/materials/${id}/like`, { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
-        setMaterials(prev => prev.map(m => m.id === id ? { ...m, likes: data.likes } : m));
+        setMaterials(prev => {
+          const updated = prev.map(m => m.id === id ? { ...m, likes: data.likes } : m);
+          try {
+            localStorage.setItem('puc_materials', JSON.stringify(updated));
+          } catch (err) {}
+          return updated;
+        });
         if (activeMaterial && activeMaterial.id === id) {
           setActiveMaterial(prev => prev ? { ...prev, likes: data.likes } : null);
         }
+      } else {
+        throw new Error('API errored');
       }
     } catch (err) {
       // client side fallback
-      setMaterials(prev => prev.map(m => m.id === id ? { ...m, likes: m.likes + 1 } : m));
+      setMaterials(prev => {
+        const updated = prev.map(m => m.id === id ? { ...m, likes: (m.likes || 0) + 1 } : m);
+        try {
+          localStorage.setItem('puc_materials', JSON.stringify(updated));
+        } catch (err) {}
+        return updated;
+      });
       if (activeMaterial && activeMaterial.id === id) {
-        setActiveMaterial(prev => prev ? { ...prev, likes: prev.likes + 1 } : null);
+        setActiveMaterial(prev => prev ? { ...prev, likes: (prev.likes || 0) + 1 } : null);
       }
     }
   };
@@ -353,6 +477,15 @@ export default function App() {
   const handlePostComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCommentText.trim() || !activeMaterial) return;
+
+    const mockCom: UserComment = {
+      id: `comm-${Date.now()}`,
+      targetId: activeMaterial.id,
+      author: commentAuthor.trim() || 'Anonymous Student',
+      authorEmail: 'student@pucircle.org',
+      text: newCommentText,
+      createdAt: new Date().toISOString()
+    };
 
     try {
       const payload = {
@@ -372,20 +505,46 @@ export default function App() {
         const added = await res.json();
         setMaterialComments(prev => [...prev, added]);
         setNewCommentText('');
+        
+        setComments(prev => {
+          const updated = [...prev, added];
+          try {
+            localStorage.setItem('puc_comments', JSON.stringify(updated));
+          } catch (err) {}
+          return updated;
+        });
+
         // Update comments count on main card list
-        setMaterials(prev => prev.map(m => m.id === activeMaterial.id ? { ...m, commentsCount: (m.downloads || 0) + 1 } : m));
+        setMaterials(prev => {
+          const updated = prev.map(m => m.id === activeMaterial.id ? { ...m, commentsCount: (m.commentsCount || 0) + 1 } : m);
+          try {
+            localStorage.setItem('puc_materials', JSON.stringify(updated));
+          } catch (err) {}
+          return updated;
+        });
+      } else {
+        throw new Error('API failed');
       }
     } catch (err) {
-      const mockCom: UserComment = {
-        id: `comm-${Date.now()}`,
-        targetId: activeMaterial.id,
-        author: commentAuthor.trim() || 'Anonymous Student',
-        authorEmail: 'student@pucircle.org',
-        text: newCommentText,
-        createdAt: new Date().toISOString()
-      };
       setMaterialComments(prev => [...prev, mockCom]);
       setNewCommentText('');
+
+      setComments(prev => {
+        const updated = [...prev, mockCom];
+        try {
+          localStorage.setItem('puc_comments', JSON.stringify(updated));
+        } catch (err) {}
+        return updated;
+      });
+
+      // Update comments count on main card list
+      setMaterials(prev => {
+        const updated = prev.map(m => m.id === activeMaterial.id ? { ...m, commentsCount: (m.commentsCount || 0) + 1 } : m);
+        try {
+          localStorage.setItem('puc_materials', JSON.stringify(updated));
+        } catch (err) {}
+        return updated;
+      });
     }
   };
 
@@ -393,6 +552,15 @@ export default function App() {
   const handlePostGeneral = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!generalCommentText.trim()) return;
+
+    const mockCom: UserComment = {
+      id: `comm-${Date.now()}`,
+      targetId: 'general',
+      author: generalAuthor.trim() || 'Anonymous Student',
+      authorEmail: 'guest.pu@pucircle.org',
+      text: generalCommentText,
+      createdAt: new Date().toISOString()
+    };
 
     try {
       const payload = {
@@ -412,19 +580,117 @@ export default function App() {
         const added = await res.json();
         setGeneralComments(prev => [added, ...prev]);
         setGeneralCommentText('');
+
+        setComments(prev => {
+          const updated = [...prev, added];
+          try {
+            localStorage.setItem('puc_comments', JSON.stringify(updated));
+          } catch (err) {}
+          return updated;
+        });
+      } else {
+        throw new Error('API failed');
       }
     } catch (err) {
-      const mockCom: UserComment = {
-        id: `comm-${Date.now()}`,
-        targetId: 'general',
-        author: generalAuthor.trim() || 'Anonymous Student',
-        authorEmail: 'guest.pu@pucircle.org',
-        text: generalCommentText,
-        createdAt: new Date().toISOString()
-      };
       setGeneralComments(prev => [mockCom, ...prev]);
       setGeneralCommentText('');
+
+      setComments(prev => {
+        const updated = [...prev, mockCom];
+        try {
+          localStorage.setItem('puc_comments', JSON.stringify(updated));
+        } catch (err) {}
+        return updated;
+      });
     }
+  };
+
+  // Dynamic offline-first direct client-side study material downloader
+  const handleDownloadClient = async (item: StudyMaterial) => {
+    // 1. Fire best-effort metrics notify to backend (no-op if offline)
+    try {
+      fetch(`/api/download/${item.id}`).catch(() => {});
+    } catch (e) {}
+
+    // 2. Increment local state download counters and save
+    setMaterials(prev => {
+      const updated = prev.map(m => m.id === item.id ? { ...m, downloads: (m.downloads || 0) + 1 } : m);
+      try {
+        localStorage.setItem('puc_materials', JSON.stringify(updated));
+      } catch (err) {}
+      return updated;
+    });
+
+    if (activeMaterial && activeMaterial.id === item.id) {
+      setActiveMaterial(prev => prev ? { ...prev, downloads: (prev.downloads || 0) + 1 } : null);
+    }
+
+    // 3. Construct File Buffer dynamically (Blob generation)
+    let fileData: Blob;
+    let fileName = item.fileName || 'study_guide.txt';
+
+    if (item.fileBase64) {
+      try {
+        const parts = item.fileBase64.split(';base64,');
+        const rawMime = parts[0]?.split(':')[1] || 'application/octet-stream';
+        const base64Data = parts[1] || parts[0];
+        
+        const byteString = atob(base64Data);
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) {
+          ia[i] = byteString.charCodeAt(i);
+        }
+        fileData = new Blob([ab], { type: rawMime });
+      } catch (e) {
+        console.error('Error parsing custom file base64:', e);
+        fileData = new Blob([`Error recovering custom uploaded file contents for: ${item.title}`], { type: 'text/plain' });
+      }
+    } else {
+      // Reconstruct default PDF/guides in detailed format
+      const textContent = `
+============================================================
+                     PU CIRCLE ARCHIVES
+                 STUDY RESOURCES COLLECTIVE
+============================================================
+
+RESOURCE METADATA:
+------------------------------------------
+- Title:       ${item.title}
+- Academic:    ${item.className}
+- Subject:     ${item.subject} (${item.stream} Stream)
+- Category:    ${item.category}
+- Revision:    ${item.modulePartition || 'Whole Syllabus'}
+- Upload Date: ${item.uploadDate}
+- Curator:     ${item.uploader} (${item.uploaderEmail})
+
+============================================================
+DOCUMENT OVERVIEW & EXPLANATORY SYNOPSIS:
+============================================================
+${item.description}
+
+This study companion is curated to map high-yield topics from the Karnataka Pre-University board curriculum.
+Study guidelines, master formulas, and follow scoring blueprints closely.
+
+============================================================
+               Brought to you by PU Circle.
+         Share your study sheets, notes, and exams 
+               to help others excel!
+============================================================
+`.trim();
+      fileData = new Blob([textContent], { type: 'text/plain' });
+      fileName = fileName.endsWith('.txt') ? fileName : fileName + '.txt';
+    }
+
+    // 4. Download file in browser
+    const url = URL.createObjectURL(fileData);
+    const downloadLink = document.createElement('a');
+    downloadLink.href = url;
+    downloadLink.download = fileName;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -1011,18 +1277,15 @@ export default function App() {
                   </div>
 
                   {/* Trigger Direct download */}
-                  <a 
-                    href={activeMaterial.downloadUrl || `/api/download/${activeMaterial.id}`}
+                  <button 
+                    type="button"
+                    onClick={() => handleDownloadClient(activeMaterial)}
                     className="w-full sm:w-auto text-center flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-3 rounded-xl transition cursor-pointer active:scale-98 shadow-sm shadow-indigo-100"
-                    onClick={() => {
-                      setMaterials(prev => prev.map(m => m.id === activeMaterial.id ? { ...m, downloads: m.downloads + 1 } : m));
-                      setActiveMaterial(prev => prev ? { ...prev, downloads: prev.downloads + 1 } : null);
-                    }}
                     id="link_material_direct_download"
                   >
                     <Download className="w-4 h-4" />
                     Download File
-                  </a>
+                  </button>
                 </div>
 
                 <div className="space-y-2">
