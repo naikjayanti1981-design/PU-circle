@@ -20,7 +20,8 @@ import {
   GraduationCap,
   Sparkles,
   Link,
-  ChevronDown
+  ChevronDown,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PUClass, PUStream, MaterialCategory, PUModule, StudyMaterial, UserComment, CircularNotification } from './types';
@@ -438,6 +439,91 @@ export default function App() {
     }
   };
 
+  // Delete a Study Material
+  const handleDeleteMaterial = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this study material?")) return;
+    try {
+      const res = await fetch(`/api/materials/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setMaterials(prev => {
+          const updated = prev.filter(m => m.id !== id);
+          try {
+            localStorage.setItem('puc_materials', JSON.stringify(updated));
+          } catch (err) {}
+          return updated;
+        });
+        if (activeMaterial && activeMaterial.id === id) {
+          setActiveMaterial(null);
+        }
+      } else {
+        throw new Error('API delete failed');
+      }
+    } catch (err) {
+      // client side fallback
+      setMaterials(prev => {
+        const updated = prev.filter(m => m.id !== id);
+        try {
+          localStorage.setItem('puc_materials', JSON.stringify(updated));
+        } catch (err) {}
+        return updated;
+      });
+      if (activeMaterial && activeMaterial.id === id) {
+        setActiveMaterial(null);
+      }
+    }
+  };
+
+  // Delete a Circular Notification
+  const handleDeleteCircular = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this circular bulletin?")) return;
+    try {
+      const res = await fetch(`/api/circulars/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setCirculars(prev => {
+          const updated = prev.filter(c => c.id !== id);
+          try {
+            localStorage.setItem('puc_circulars', JSON.stringify(updated));
+          } catch (err) {}
+          return updated;
+        });
+      } else {
+        throw new Error('API delete failed');
+      }
+    } catch (err) {
+      setCirculars(prev => {
+        const updated = prev.filter(c => c.id !== id);
+        try {
+          localStorage.setItem('puc_circulars', JSON.stringify(updated));
+        } catch (err) {}
+        return updated;
+      });
+    }
+  };
+
+  // Clear all demo entries for clean Netlify publish
+  const handleClearAllDemos = () => {
+    if (!window.confirm("This will clear all pre-populated demo materials, comments, and circular notifications to give you a pristine blank slate. Continue?")) return;
+    
+    fetch('/api/clear-demos', { method: 'POST' }).catch(() => {});
+
+    const customMaterials = materials.filter(m => m.isCustom === true);
+    const customCirculars: CircularNotification[] = [];
+    const customComments = comments.filter(c => !c.targetId.startsWith('mat-') && c.targetId !== 'general');
+
+    setMaterials(customMaterials);
+    setCirculars(customCirculars);
+    setComments(customComments);
+    setGeneralComments([]);
+
+    try {
+      localStorage.setItem('puc_materials', JSON.stringify(customMaterials));
+      localStorage.setItem('puc_circulars', JSON.stringify(customCirculars));
+      localStorage.setItem('puc_comments', JSON.stringify(customComments));
+    } catch (err) {}
+  };
+
   // Like a Study Material Card
   const handleLikeMaterial = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -850,11 +936,22 @@ Study guidelines, master formulas, and follow scoring blueprints closely.
 
                       <div className="mt-3 pt-3 border-t border-dotted border-slate-200 flex items-center justify-between text-[10px] text-slate-500">
                         <span className="font-medium">{circ.authority}</span>
-                        {circ.important && (
-                          <span className="text-rose-600 font-semibold flex items-center gap-1 animate-pulse">
-                            ● urgent
-                          </span>
-                        )}
+                        <div className="flex items-center gap-3">
+                          {circ.important && (
+                            <span className="text-rose-600 font-semibold flex items-center gap-1 animate-pulse">
+                              ● urgent
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteCircular(circ.id, e)}
+                            className="p-1 hover:text-rose-600 rounded transition hover:bg-rose-50"
+                            title="Delete circular"
+                            id={`btn_delete_circular_${circ.id}`}
+                          >
+                            <Trash2 className="w-3 h-3 text-slate-400 hover:text-rose-500" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1009,7 +1106,7 @@ Study guidelines, master formulas, and follow scoring blueprints closely.
             </div>
 
             {/* List Header */}
-            <div className="flex items-center justify-between" id="materials_list_header_bar">
+            <div className="flex flex-wrap items-center justify-between gap-2" id="materials_list_header_bar">
               <div className="text-slate-900 font-bold font-sans text-lg flex items-center gap-2">
                 <h3>Pre-University Resources</h3>
                 <span className="text-xs font-mono font-medium px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full">
@@ -1017,7 +1114,21 @@ Study guidelines, master formulas, and follow scoring blueprints closely.
                 </span>
               </div>
               
-              <div className="text-xs text-slate-400 italic">Sorted by uploaded date</div>
+              <div className="flex items-center gap-2">
+                {materials.some(m => !m.isCustom) && (
+                  <button
+                    type="button"
+                    onClick={handleClearAllDemos}
+                    className="flex items-center gap-1.5 text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 px-2.5 py-1 rounded-lg transition"
+                    title="Remove preloaded placeholder demo data for clean production publish"
+                    id="btn_purge_all_demos"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Remove Demo Items
+                  </button>
+                )}
+                <div className="text-xs text-slate-400 italic">Sorted by uploaded date</div>
+              </div>
             </div>
 
             {/* Study Material Grid Cards list */}
@@ -1107,6 +1218,16 @@ Study guidelines, master formulas, and follow scoring blueprints closely.
                             </span>
                             <span>{item.fileSize}</span>
                           </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteMaterial(item.id, e)}
+                            className="flex items-center justify-center p-1 hover:text-rose-600 rounded transition hover:bg-rose-50"
+                            title="Delete this study material"
+                            id={`btn_delete_material_${item.id}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-rose-500" />
+                          </button>
                         </div>
 
                       </div>

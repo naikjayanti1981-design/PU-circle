@@ -36,40 +36,7 @@ interface DatabaseSchema {
 let db: DatabaseSchema = {
   materials: INITIAL_MATERIALS,
   circulars: INITIAL_CIRCULARS,
-  comments: [
-    {
-      id: 'comm-1',
-      targetId: 'mat-1',
-      author: 'Deepak Gowda',
-      authorEmail: 'deepak.gowda@gmail.com',
-      text: 'Extremely helpful solver. The calculations for organic conversions in chemistry are incredibly detailed. Big thanks to the teacher who uploaded this!',
-      createdAt: '2026-06-22T10:14:22Z',
-    },
-    {
-      id: 'comm-2',
-      targetId: 'mat-2',
-      author: 'Preethi Rao',
-      authorEmail: 'preethi@pes.edu',
-      text: 'Used this cheat sheet on the bus to my class-test today. All integration formulas are condensed on 2 pages! Recommended for everyone.',
-      createdAt: '2026-06-20T18:45:00Z',
-    },
-    {
-      id: 'comm-3',
-      targetId: 'circ-1',
-      author: 'Kiran Kumar',
-      authorEmail: 'kiran2008@outlook.com',
-      text: 'Are these model papers final or will they release another set? The math paper layout seems slightly changed in Part C compared to last year.',
-      createdAt: '2026-06-21T07:12:00Z',
-    },
-    {
-      id: 'comm-4',
-      targetId: 'general',
-      author: 'Prof. Ramesh Bhat',
-      authorEmail: 'ramesh.physics@college.edu',
-      text: 'Welcome 1st & 2nd PU Students! Let\'s build a helpful collaborative repository here. Feel free to drag & drop high-quality question sheets, syllabus blueprints, or chapter summaries. Please label them accurately so your peers can access them easily.',
-      createdAt: '2026-06-02T09:00:00Z',
-    }
-  ]
+  comments: []
 };
 
 // Guard database reading
@@ -222,6 +189,41 @@ app.post('/api/comments', (req, res) => {
   res.status(201).json(newComment);
 });
 
+// DELETE /api/materials/:id
+app.delete('/api/materials/:id', (req, res) => {
+  const { id } = req.params;
+  const index = db.materials.findIndex(m => m.id === id);
+  if (index !== -1) {
+    db.materials.splice(index, 1);
+    // Also clear associated comments
+    db.comments = db.comments.filter(c => c.targetId !== id);
+    saveDatabase();
+    return res.json({ success: true });
+  }
+  res.status(404).json({ error: 'Material not found' });
+});
+
+// DELETE /api/circulars/:id
+app.delete('/api/circulars/:id', (req, res) => {
+  const { id } = req.params;
+  const index = db.circulars.findIndex(c => c.id === id);
+  if (index !== -1) {
+    db.circulars.splice(index, 1);
+    saveDatabase();
+    return res.json({ success: true });
+  }
+  res.status(404).json({ error: 'Circular not found' });
+});
+
+// POST /api/clear-demos
+app.post('/api/clear-demos', (req, res) => {
+  db.materials = db.materials.filter(m => m.isCustom === true);
+  db.circulars = [];
+  db.comments = db.comments.filter(c => !c.targetId.startsWith('mat-') && c.targetId !== 'general');
+  saveDatabase();
+  res.json({ success: true });
+});
+
 // Download service with on-the-fly construction of text sheets for simulation papers
 app.get('/api/download/:id', (req, res) => {
   const { id } = req.params;
@@ -283,7 +285,11 @@ questions, and blueprints to help each other excel.
 ========================================
   `.trim();
 
-  res.setHeader('Content-Disposition', `attachment; filename="${material.fileName || 'study_guide.txt'}.txt"`);
+  const finalFilename = material.fileName 
+    ? (material.fileName.endsWith('.txt') ? material.fileName : `${material.fileName}.txt`)
+    : 'study_guide.txt';
+
+  res.setHeader('Content-Disposition', `attachment; filename="${finalFilename}"`);
   res.setHeader('Content-Type', 'text/plain');
   res.send(textContent);
 });
